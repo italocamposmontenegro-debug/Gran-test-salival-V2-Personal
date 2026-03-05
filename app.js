@@ -48,16 +48,16 @@
   /** =============== Default config =============== **/
   const DEFAULT_CONFIG = {
     disItems: [
-      'Impacto en higiene personal',
-      'Necesidad de cambiar ropa/babero',
-      'Irritación de piel/dermatitis perioral',
-      'Interferencia en alimentación',
-      'Interferencia en habla/comunicación',
-      'Impacto en interacción social',
-      'Molestia para el usuario',
-      'Carga para cuidadores/familia',
-      'Limitación en participación escolar/comunitaria',
-      'Dificultad en manejo diario (toallas, limpieza, etc.)'
+      '¿Cuánto afecta el babeo a la higiene personal del usuario?',
+      '¿Con qué frecuencia necesita cambiar la ropa o el babero?',
+      '¿Presenta irritación en la piel o dermatitis perioral por el babeo?',
+      '¿Cómo interfiere el babeo en su alimentación?',
+      '¿Cómo interfiere el babeo en su habla o comunicación?',
+      '¿Cómo impacta el babeo en su interacción social con otros?',
+      '¿Cuánto parece molestarle el babeo al usuario?',
+      '¿Qué nivel de carga representa el babeo para los cuidadores o familia?',
+      '¿Cómo limita el babeo su participación escolar o comunitaria?',
+      '¿Qué nivel de dificultad genera el manejo diario (limpieza, toallas)?'
     ],
     dq5Bands: { low: 10, mild: 30, mod: 60 },
     disBands: { low: 20, mod: 50 },
@@ -102,6 +102,7 @@
           tiempoTranscurrido: '',
           resultadosPrevios: ''
         },
+        antecedenteOtros: '',
 
         // Sección 2: DQ5 Actividad
         dq5Actividad: {
@@ -773,6 +774,14 @@
         onInput: (v) => { evalData.evaluacionAnterior.resultadosPrevios = v; markDirty(); }
       }));
 
+      body.appendChild(textareaField({
+        label: 'Otros (rutina de sueño, alimentos, medicamentos, presencia de sialorrea posterior)',
+        value: evalData.antecedenteOtros || '',
+        rows: 4,
+        placeholder: 'Ingrese otros antecedentes relevantes',
+        onInput: (v) => { evalData.antecedenteOtros = v; markDirty(); }
+      }));
+
       return;
     }
 
@@ -819,8 +828,12 @@
       evalData.dq5Actividad.intervalos.forEach((v, i) => {
         const it = document.createElement('div');
         it.className = 'interval';
+        const seconds = (i + 1) * 15;
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        const timeStr = `${m}:${s < 10 ? '0' : ''}${s}`;
         it.innerHTML = `
-          <small>Int ${i + 1}</small>
+          <small>${timeStr}</small>
           <div class="toggle">
             <button class="tbtn ${v === 0 ? 'on0' : ''}" data-mode="actividad" data-i="${i}" data-v="0">0</button>
             <button class="tbtn ${v === 1 ? 'on1' : ''}" data-mode="actividad" data-i="${i}" data-v="1">1</button>
@@ -889,8 +902,12 @@
       evalData.dq5Reposo.intervalos.forEach((v, i) => {
         const it = document.createElement('div');
         it.className = 'interval';
+        const seconds = (i + 1) * 15;
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        const timeStr = `${m}:${s < 10 ? '0' : ''}${s}`;
         it.innerHTML = `
-          <small>Int ${i + 1}</small>
+          <small>${timeStr}</small>
           <div class="toggle">
             <button class="tbtn ${v === 0 ? 'on0' : ''}" data-mode="reposo" data-i="${i}" data-v="0">0</button>
             <button class="tbtn ${v === 1 ? 'on1' : ''}" data-mode="reposo" data-i="${i}" data-v="1">1</button>
@@ -1085,16 +1102,16 @@
 
       // Official 10 DIS items
       const disItemLabels = [
-        'Impacto en higiene personal',
-        'Necesidad de cambiar ropa/babero',
-        'Irritación de piel/dermatitis perioral',
-        'Interferencia en alimentación',
-        'Interferencia en habla/comunicación',
-        'Impacto en interacción social',
-        'Molestia para el usuario',
-        'Carga para cuidadores/familia',
-        'Limitación en participación escolar/comunitaria',
-        'Dificultad en manejo diario (toallas, limpieza, etc.)'
+        '¿Cuánto afecta el babeo a la higiene personal del usuario?',
+        '¿Con qué frecuencia necesita cambiar la ropa o el babero?',
+        '¿Presenta irritación en la piel o dermatitis perioral por el babeo?',
+        '¿Cómo interfiere el babeo en su alimentación?',
+        '¿Cómo interfiere el babeo en su habla o comunicación?',
+        '¿Cómo impacta el babeo en su interacción social con otros?',
+        '¿Cuánto parece molestarle el babeo al usuario?',
+        '¿Qué nivel de carga representa el babeo para los cuidadores o familia?',
+        '¿Cómo limita el babeo su participación escolar o comunitaria?',
+        '¿Qué nivel de dificultad genera el manejo diario (limpieza, toallas)?'
       ];
 
       const table = document.createElement('table');
