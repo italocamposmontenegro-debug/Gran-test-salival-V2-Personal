@@ -195,7 +195,13 @@
 
         // Sección 9: Informe editable
         informeEditable: '',
-        diagnosticoEditable: ''
+        diagnosticoEditable: '',
+
+        // Sección 10: PPDS (Paediatric Posterior Drooling Scale)
+        ppds: {
+          score: 0, // 0-4
+          respiratoryDescription: 0 // 0-4
+        }
       }
     };
   }
@@ -408,6 +414,62 @@
     };
   }
 
+  // Calculate PPDS (Paediatric Posterior Drooling Scale)
+  function calcPPDS(data) {
+    const ppds = data.ppds || { score: 0, respiratoryDescription: 0 };
+    const score = Number(ppds.score || 0);
+    const descIdx = Number(ppds.respiratoryDescription || 0);
+
+    const classifications = [
+      'sin signos clínicos relevantes de sialorrea posterior',
+      'sialorrea posterior leve',
+      'sialorrea posterior leve a moderada',
+      'sialorrea posterior moderada',
+      'sialorrea posterior significativa'
+    ];
+
+    const descriptions = [
+      'respiración limpia antes y después de la deglución',
+      'respiración húmeda previa a la deglución, con limpieza posterior al evento deglutorio',
+      'respiración inicialmente limpia, con cambios húmedos posteriores a la deglución',
+      'respiración húmeda antes y después de la deglución',
+      'respiración húmeda persistente, en ausencia de RDD y con persistencia posterior a la deglución'
+    ];
+
+    const classification = classifications[score] || classifications[0];
+    const description = descriptions[descIdx] || descriptions[0];
+
+    const interpretation = `La evaluación de sialorrea posterior mediante la PPDS evidencia un puntaje de ${score}, compatible con ${classification}. Durante la observación clínica se identificó ${description}, lo que sugiere acumulación de secreciones en región faríngea y posible compromiso del manejo salival posterior.`;
+
+    return {
+      score,
+      classification,
+      description,
+      interpretation
+    };
+  }
+
+  // Detect clinical scenario for synthesis
+  function detectClinicalScenario(data) {
+    const impact = classifyImpact(data);
+    const ppds = calcPPDS(data);
+
+    const isAnteriorRelevant = (
+      impact.dq5.promedio > state.cfg.dq5Bands.low ||
+      impact.freq.total > 0 ||
+      impact.dis.pct > state.cfg.disBands.low ||
+      Number(data.severidad) > 1 ||
+      Number(data.frecuencia) > 1
+    );
+
+    const isPosteriorRelevant = ppds.score > 0;
+
+    if (isAnteriorRelevant && isPosteriorRelevant) return 'AMBOS';
+    if (isAnteriorRelevant) return 'SOLO_ANTERIOR';
+    if (isPosteriorRelevant) return 'SOLO_POSTERIOR';
+    return 'SIN_HALLAZGOS';
+  }
+
   function analyzeIntegration(data) {
     const dq = calcDQ5(data);
     const th = calcThomas(data);
@@ -469,7 +531,7 @@
     };
 
     return [
-      'DIAGNÓSTICO FONOAUDIOLÓGICO ORIENTADOR',
+      'SÍNTESIS CLÍNICA',
       '',
       `Trastorno del control salival ${map[data.etiologiaOrientativa] ?? 'en evaluación'}, caracterizado por:`,
       '',
@@ -512,10 +574,12 @@
     }
     // Step 6: DIS - always valid
     if (step === 6) return { ok: true };
-    // Step 7: Synthesis - always valid
+    // Step 7: PPDS - always valid (defaults to 0)
     if (step === 7) return { ok: true };
-    // Step 8: Final report - always valid
+    // Step 8: Synthesis - always valid
     if (step === 8) return { ok: true };
+    // Step 9: Final report - always valid
+    if (step === 9) return { ok: true };
 
     return { ok: true };
   }
@@ -529,7 +593,8 @@
     { title: 'Frecuencia de Babeo', hint: 'Escala 0-15 por actividad diaria.' },
     { title: 'Thomas‑Stonell', hint: 'Respaldo clínico (no visible en informe).' },
     { title: 'DIS', hint: 'Impacto funcional (1-10 por ítem, 10 ítems).' },
-    { title: 'Síntesis', hint: 'Clasificación automática e interpretación.' },
+    { title: 'PPDS', hint: 'Escala de sialorrea posterior (Paediatric Posterior Drooling Scale).' },
+    { title: 'Síntesis', hint: 'Clasificación automática e interpretación integrada.' },
     { title: 'Informe Final', hint: 'Texto narrativo editable y exportable.' }
   ];
 
@@ -1165,9 +1230,74 @@
       return;
     }
 
-    // Step 7: Síntesis (Classification and Interpretation)
+    // Step 7: PPDS (Paediatric Posterior Drooling Scale)
     if (state.step === 7) {
+      if (!evalData.ppds) evalData.ppds = { score: 0 };
+      const ppds = calcPPDS(evalData);
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="card-title">Paediatric Posterior Drooling Scale (PPDS)</div>
+        <p class="muted"><strong>Escala de sialorrea posterior</strong></p>
+        <div class="callout callout-info">
+          <div class="callout-title">Procedimiento clínico sugerido</div>
+          <div class="callout-body">
+            El/la terapeuta debe auscultar con fonendoscopio la calidad respiratoria del usuario en reposo, solicitar deglución espontánea o guiada, e inmediatamente volver a auscultar, clasificando la respuesta según los signos clínicos observados.
+          </div>
+        </div>
+      `;
+      body.appendChild(card);
+
+      const options = [
+        { v: 0, t: '0 = Respiración limpia, deglución, respiración limpia' },
+        { v: 1, t: '1 = Respiración húmeda, RDD, respiración limpia' },
+        { v: 2, t: '2 = Respiración limpia, RDD, respiración húmeda' },
+        { v: 3, t: '3 = Respiración húmeda, RDD, respiración húmeda' },
+        { v: 4, t: '4 = Respiración húmeda, RDD ausente, respiración húmeda' }
+      ];
+
+      const stack = document.createElement('div');
+      stack.className = 'stack';
+      options.forEach(opt => {
+        const row = document.createElement('label');
+        row.className = 'card';
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.gap = '12px';
+        row.style.cursor = 'pointer';
+        if (evalData.ppds.score === opt.v) {
+          row.style.borderColor = 'var(--purple)';
+          row.style.background = 'rgba(95, 39, 205, 0.05)';
+        }
+        row.innerHTML = `<input type="radio" name="ppds_score" value="${opt.v}" ${evalData.ppds.score === opt.v ? 'checked' : ''} /> <span>${opt.t}</span>`;
+        row.addEventListener('click', () => {
+          evalData.ppds.score = opt.v;
+          evalData.ppds.respiratoryDescription = opt.v; // Mapped index
+          markDirty();
+          renderAll(false);
+        });
+        stack.appendChild(row);
+      });
+      body.appendChild(stack);
+
+      const interpCard = document.createElement('div');
+      interpCard.className = 'callout callout-info';
+      interpCard.style.marginTop = '16px';
+      interpCard.innerHTML = `
+        <div class="callout-title">Interpretación automática</div>
+        <div class="callout-body">${escapeHtml(ppds.interpretation)}</div>
+      `;
+      body.appendChild(interpCard);
+
+      return;
+    }
+
+    // Step 8: Síntesis (Classification and Interpretation)
+    if (state.step === 8) {
       const impact = classifyImpact(evalData);
+      const ppds = calcPPDS(evalData);
+      const scenario = detectClinicalScenario(evalData);
       const dqDual = calcDQ5Dual(evalData);
       const fb = calcFrecuenciaBabeo(evalData);
       const dis = calcDIS(evalData);
@@ -1176,8 +1306,8 @@
       const card = document.createElement('div');
       card.className = 'card';
       card.innerHTML = `
-        <div class="card-title">Síntesis Clínica</div>
-        <p class="muted">Clasificación automática basada en los instrumentos aplicados.</p>
+        <div class="card-title">Síntesis Clínica Integrada</div>
+        <p class="muted">Clasificación basada en la integración de componentes anterior y posterior.</p>
       `;
       body.appendChild(card);
 
@@ -1186,10 +1316,13 @@
       impactPill.className = 'pills';
       impactPill.innerHTML = `
         <div class="pill ${impact.level === 'ALTO' ? 'bad' : (impact.level === 'MODERADO' ? 'warn' : 'ok')}">
-          Nivel de Impacto: <strong>${impact.level}</strong>
+          Impacto Anterior: <strong>${impact.level}</strong>
         </div>
-        ${impact.isHighImpact ? '<div class="pill bad"><strong>⚠ ALTO IMPACTO</strong></div>' : ''}
-        ${impact.hasWorsened ? '<div class="pill warn"><strong>⚠ EMPEORAMIENTO DETECTADO</strong></div>' : ''}
+        <div class="pill ${ppds.score > 0 ? 'warn' : 'ok'}">
+          Componente Posterior: <strong>${ppds.score > 0 ? 'PRESENTE' : 'SIN SIGNOS'}</strong>
+        </div>
+        ${impact.isHighImpact ? '<div class="pill bad"><strong>⚠ ALTO IMPACTO ANTERIOR</strong></div>' : ''}
+        ${ppds.score >= 3 ? '<div class="pill bad"><strong>⚠ COMPROMISO POSTERIOR SEVERO</strong></div>' : ''}
       `;
       body.appendChild(impactPill);
 
@@ -1197,43 +1330,42 @@
       const table = document.createElement('table');
       table.className = 'table';
       table.innerHTML = `
-        <thead><tr><th>Instrumento</th><th>Resultado</th></tr></thead>
+        <thead><tr><th>Instrumento / Componente</th><th>Resultado</th></tr></thead>
         <tbody>
-          <tr><td>DQ5 Actividad</td><td>${dqDual.actividad.pct}% (${dqDual.contextoActividad || 'sin contexto'})</td></tr>
-          <tr><td>DQ5 Reposo</td><td>${dqDual.reposo.pct}% (${dqDual.contextoReposo || 'sin contexto'})</td></tr>
-          <tr><td>DQ5 TOTAL</td><td><strong>${dqDual.promedio}%</strong></td></tr>
+          <tr><td colspan="2" style="background:var(--panel2); font-weight:bold;">Sialorrea Anterior</td></tr>
+          <tr><td>DQ5 TOTAL</td><td><strong>${dqDual.promedio}%</strong> — ${dqDual.cat}</td></tr>
           <tr><td>Frecuencia de Babeo</td><td>${fb.total}/15</td></tr>
-          <tr><td>DIS (Impacto)</td><td>${dis.total}/100 (${dis.pct}%)</td></tr>
-          <tr><td>Thomas-Stonell (respaldo)</td><td>Sev: ${th.sevCat}, Frec: ${th.frCat}</td></tr>
+          <tr><td>DIS (Impacto)</td><td>${dis.total}/100 (${dis.pct}%) — ${dis.cat}</td></tr>
+          <tr><td colspan="2" style="background:var(--panel2); font-weight:bold;">Sialorrea Posterior</td></tr>
+          <tr><td>PPDS (Puntaje)</td><td><strong>${ppds.score}/4</strong></td></tr>
+          <tr><td>Clasificación PPDS</td><td>${capitalize(ppds.classification)}</td></tr>
         </tbody>
       `;
       body.appendChild(table);
 
-      // High impact detection rules
-      const rulesCard = document.createElement('div');
-      rulesCard.className = 'callout ' + (impact.isHighImpact ? 'callout-warn' : 'callout-info');
-      const rules = [
-        `Frecuencia de babeo: ${fb.total}/15 ${fb.total === 15 ? '✓' : '✗'}`,
-        `DIS ≥ 70%: ${dis.pct}% ${dis.pct >= 70 ? '✓' : '✗'}`,
-        `DQ5 promedio ≥ 60%: ${dqDual.promedio}% ${dqDual.promedio >= 60 ? '✓' : '✗'}`
-      ];
-      rulesCard.innerHTML = `
-        <div class="callout-title">Criterios de ALTO IMPACTO</div>
-        <div class="callout-body">
-          <ul style="margin: 0; padding-left: 20px;">
-            ${rules.map(r => `<li>${r}</li>`).join('')}
-          </ul>
-          <p><strong>Resultado:</strong> ${impact.isHighImpact ? 'Cumple todos los criterios → ALTO IMPACTO' : 'No cumple todos los criterios'}</p>
-        </div>
+      // Clinical Scenario
+      const scenarioMap = {
+        AMBOS: { t: 'Sialorrea Mixta (Anterior + Posterior)', c: 'callout-warn' },
+        SOLO_ANTERIOR: { t: 'Sialorrea Anterior aislada', c: 'callout-info' },
+        SOLO_POSTERIOR: { t: 'Sialorrea Posterior aislada', c: 'callout-info' },
+        SIN_HALLAZGOS: { t: 'Sin hallazgos clínicos relevantes', c: 'callout-ok' }
+      };
+      const sc = scenarioMap[scenario] || scenarioMap.SIN_HALLAZGOS;
+
+      const scCard = document.createElement('div');
+      scCard.className = `callout ${sc.c}`;
+      scCard.innerHTML = `
+        <div class="callout-title">Escenario Detectado</div>
+        <div class="callout-body"><strong>${sc.t}</strong></div>
       `;
-      body.appendChild(rulesCard);
+      body.appendChild(scCard);
 
       // Clinical notes
       body.appendChild(textareaField({
-        label: 'Notas clínicas adicionales para síntesis',
+        label: 'Notas clínicas adicionales para la síntesis',
         value: evalData.comentarioIntegracion || '',
         rows: 4,
-        placeholder: 'Observaciones clínicas, contexto relevante, evolución respecto a evaluación previa...',
+        placeholder: 'Observaciones cualitativas, postura, factores ambientales o evolución...',
         onInput: (v) => { evalData.comentarioIntegracion = v; markDirty(); }
       }));
 
@@ -1297,11 +1429,14 @@
   }
 
   /** =============== Narrative Report Generator (New Format) =============== **/
+  /** =============== Integrated Narrative Report Generator =============== **/
   function buildNarrativeReport(data) {
     const dqDual = calcDQ5Dual(data);
     const fb = calcFrecuenciaBabeo(data);
     const dis = calcDIS(data);
     const impact = classifyImpact(data);
+    const ppds = calcPPDS(data);
+    const scenario = detectClinicalScenario(data);
 
     // Context
     const motivo = data.motivoEvaluacion || 'control';
@@ -1313,17 +1448,26 @@
     if (impact.level === 'ALTO') impactText = 'alto impacto';
     else if (impact.level === 'MODERADO') impactText = 'moderado impacto';
 
-    // Evolution text
-    let evolucionText = 'estable';
-    if (resultadosPrevios.toLowerCase().includes('mejor')) evolucionText = 'favorable';
-    else if (resultadosPrevios.toLowerCase().includes('peor') || resultadosPrevios.toLowerCase().includes('empeor')) evolucionText = 'desfavorable';
+    // Evolution text (reused for anterior)
+    let evolucionText = '';
+    if (resultadosPrevios.toLowerCase().includes('mejor')) evolucionText = ' con evolución favorable en el transcurso del tiempo,';
+    else if (resultadosPrevios.toLowerCase().includes('peor') || resultadosPrevios.toLowerCase().includes('empeor')) evolucionText = ' con evolución desfavorable en el transcurso del tiempo,';
 
-    // Recommendations based on impact
-    let recomendacion = 'mantener seguimiento y reevaluación periódica';
-    if (impact.isHighImpact) {
-      recomendacion = 'intervención fonoaudiológica intensiva con manejo interdisciplinario';
-    } else if (impact.level === 'MODERADO') {
-      recomendacion = 'intervención fonoaudiológica con enfoque en control salival';
+    let sintesisFinal = '';
+    let recomendacion = '';
+
+    if (scenario === 'SOLO_ANTERIOR') {
+      sintesisFinal = `En síntesis, usuario con sialorrea anterior de impacto ${impactText} en la vida cotidiana,${evolucionText} con repercusión física y social tanto en el usuario como en su entorno familiar. Se sugiere intervención fonoaudiológica con enfoque en control salival.`;
+      recomendacion = 'Se sugiere intervención fonoaudiológica con enfoque en control salival.';
+    } else if (scenario === 'SOLO_POSTERIOR') {
+      sintesisFinal = `En síntesis, usuario con ${ppds.classification}, caracterizada por signos clínicos compatibles con acumulación de secreciones en región faríngea, evidenciados mediante ${ppds.description}. Se sugiere intervención fonoaudiológica orientada al manejo salival y seguimiento clínico del componente posterior.`;
+      recomendacion = 'Se sugiere intervención fonoaudiológica orientada al manejo salival y seguimiento clínico del componente posterior.';
+    } else if (scenario === 'AMBOS') {
+      sintesisFinal = `En síntesis, usuario con sialorrea anterior de impacto ${impactText} en la vida cotidiana y ${ppds.classification}. Esta última se caracteriza por signos clínicos compatibles con acumulación de secreciones en región faríngea, evidenciados mediante ${ppds.description}. El cuadro genera repercusión funcional y requiere intervención fonoaudiológica con enfoque en control salival y abordaje del componente posterior.`;
+      recomendacion = 'Se sugiere intervención fonoaudiológica con enfoque en control salival y abordaje clínico del componente posterior.';
+    } else {
+      sintesisFinal = `En síntesis, no se observan signos clínicos relevantes que sugieran compromiso significativo del manejo salival anterior o posterior según los parámetros registrados en esta evaluación. Se recomienda seguimiento clínico según evolución.`;
+      recomendacion = 'Se recomienda seguimiento clínico según evolución.';
     }
 
     const lines = [
@@ -1349,13 +1493,17 @@
       `${dqDual.reposo.pct}% de salivas nuevas en reposo (${dqDual.contextoReposo || 'sin especificar'}, ${dqDual.reposo.nEscape} salivas nuevas).`,
       `TOTAL: ${dqDual.promedio}%`,
       '',
-      'En síntesis,',
+      'Paediatric Posterior Drooling Scale (PPDS)',
       '',
-      `Usuario con ${impactText} en la vida cotidiana producto de la sialorrea, con evolución ${evolucionText} en el transcurso del tiempo, impactando de manera física y social tanto en el usuario como en su familia. Se sugiere ${recomendacion}.`,
+      `Puntaje: ${ppds.score}/4`,
+      `Clasificación: ${capitalize(ppds.classification)}`,
+      `Hallazgos: ${capitalize(ppds.description)}`,
+      '',
+      sintesisFinal,
       '',
       'Indicaciones y acuerdos',
       '',
-      `Se sugiere ${recomendacion}.`,
+      recomendacion,
       '',
       `Ingreso a FA posterior a evaluación.`
     ];
@@ -1467,6 +1615,13 @@
     rows.push(['nivel_impacto', impact.level]);
     rows.push(['es_alto_impacto', impact.isHighImpact]);
     rows.push(['ha_empeorado', impact.hasWorsened]);
+ 
+    // PPDS
+    const ppds = calcPPDS(d);
+    rows.push(['ppds_score', ppds.score]);
+    rows.push(['ppds_clasificacion', ppds.classification]);
+    rows.push(['ppds_descripcion', ppds.description]);
+ 
     rows.push(['comentario_integracion', (d.comentarioIntegracion || '').replace(/\n/g, '\\n')]);
 
     // Informe
@@ -1649,6 +1804,7 @@
     const fb = calcFrecuenciaBabeo(d);
     const di = calcDIS(d);
     const impact = classifyImpact(d);
+    const ppds = calcPPDS(d);
 
     const content = $('#reviewContent');
     const checklist = STEPS.map((s, i) => {
@@ -1658,14 +1814,15 @@
 
     const html = `
       <div class="card">
-        <div class="card-title">Resumen Clínico</div>
+        <div class="card-title">Resumen Clínico Integrado</div>
         <div class="pills">
           <span class="pill ok">DQ5 Promedio: <strong>${dqDual.promedio}%</strong></span>
           <span class="pill ok">Frecuencia Babeo: <strong>${fb.total}/15</strong></span>
           <span class="pill ${di.cat === 'Impacto severo' ? 'bad' : (di.cat === 'Impacto moderado' ? 'warn' : 'ok')}">DIS Impacto: <strong>${di.pct}%</strong></span>
-          <span class="pill ${impact.isHighImpact ? 'bad' : 'ok'}">Clasificación: <strong>${impact.level} IMPACTO</strong></span>
-          ${impact.isHighImpact ? '<span class="pill bad">⚠ ALTO IMPACTO</span>' : ''}
-          ${impact.hasWorsened ? '<span class="pill warn">⚠ EMPEORAMIENTO</span>' : ''}
+          <span class="pill ${ppds.score > 0 ? 'warn' : 'ok'}">PPDS: <strong>${ppds.score}/4</strong></span>
+          <span class="pill ${impact.isHighImpact ? 'bad' : 'ok'}">Nivel Anterior: <strong>${impact.level}</strong></span>
+          ${impact.isHighImpact ? '<span class="pill bad">⚠ ALTO IMPACTO ANT.</span>' : ''}
+          ${ppds.score >= 3 ? '<span class="pill bad">⚠ COMPROMISO POSTERIOR</span>' : ''}
         </div>
       </div>
 
